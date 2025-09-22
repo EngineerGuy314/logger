@@ -58,10 +58,6 @@ uint64_t OW_romcodes[10];
 RfGenStruct RfGen = {0};
 static float volts=0;
 static float tempC=0;
-uint32_t XMIT_FREQUENCY;
-uint32_t XMIT_FREQUENCY_10_METER;  //deprecated
-const uint32_t freqs[14] =   							//A:LF,B:MF,C:160,D:80,E:60,F:40,G:30,H:20,I:17,J:15,K:12,L:10,M:6,N:2 
-    {137500,475700,1838100,3570100,5288700,7040100,10140200,14097100,18106100,21096100,24926100,28126100,50294500,144490500}; 
 
 
 int main()
@@ -87,10 +83,8 @@ int main()
 								 gpio_put(LED_PIN, 0);	
 							 if (fader>500000) {fader=0;fade_counter+=1;if (fade_counter>10) {watchdog_enable(100, 1);for(;;)	{} }}  //after ~10 secs force a reboot														
 						}	
-				RfGen._pGPStime->user_setup_menu_active=1;	//if we get here, they pressed a button (to interrupt the "breathing" that indicates bad nvram)
 				user_interface();  
 		}
-	process_chan_num(); //sets minute/lane/id from chan number. usually redundant at this point, but can't hurt
 	
 	if (getchar_timeout_us(0)>0)   //looks for input on USB serial port only. Note: getchar_timeout_us(0) returns a -2 (as of sdk 2) if no keypress. Must do this check BEFORE setting Clock Speed in Case you bricked it
 		{
@@ -102,22 +96,12 @@ int main()
 	
 	InitPicoPins();			// Sets GPIO pins roles and directions and also ADC for voltage and temperature measurements (NVRAM must be read BEFORE this, otherwise dont know how to map IO)
     printf("\nThe logger version: %s %s\nWSPR beacon init...",__DATE__ ,__TIME__);	//messages are sent to USB serial port, 115200 baud
-	int band_as_int=_band[0]-'A';   
-	XMIT_FREQUENCY=freqs[band_as_int];
-	switch(_lane[0])                             //following lines set lane frequencies for u4b operation. The center freuency for Zactkep (wspr 3) xmitions is hard set in WSPRBeacon.c to 14097100UL
-		{
-			case '1':XMIT_FREQUENCY-=80;break;
-			case '2':XMIT_FREQUENCY-=40;break;
-			case '3':XMIT_FREQUENCY+=40;break;
-			case '4':XMIT_FREQUENCY+=80;break;
-			 
-		}	
    
 	 WSPRbeaconContext *pWB = WSPRbeaconInit(
         _callsign,/** the Callsign. */
         CONFIG_LOCATOR4,/**< the default QTH locator if GPS isn't used. */
         10,             /**< Tx power, dbm. */
-        XMIT_FREQUENCY,
+        0,
         0,           /**< the carrier freq. shift relative to dial freq. */ //not used
         RFOUT_PIN,       /**< RF output GPIO pin. */
 		(uint8_t)_start_minute[0]-'0',   /**< convert ASCI digits to ints  */
@@ -127,78 +111,23 @@ int main()
 		&RfGen
         );
     pWSPR = pWB;  //this lets things outside this routine access the WB context
-    pWB->_txSched.force_xmit_for_testing = force_transmit;
+
 	pWB->_txSched.led_mode = 0;  //0 means no serial comms from  GPS (critical fault if it remains that way)
 	pWB->_txSched.verbosity=(uint8_t)_verbosity[0]-'0';       /**< convert ASCI digit to int  */
 	pWB->_txSched.suffix=(uint8_t)_suffix[0]-'0';    /**< convert ASCI digit to int (value 253 if dash was entered) */
 	pWB->_txSched.Optional_Debug=(uint8_t)atoi(_Optional_Debug);
 	RfGen._pGPStime = GPStimeInit(9600); 
 	RfGen._pGPStime->Optional_Debug=(uint8_t)atoi(_Optional_Debug);
-	pWB->_txSched.low_power_mode=(uint8_t)_battery_mode[0]-'0';
-	strcpy(pWB->_txSched.id13,_id13);
+
+
 	RfGen._pGPStime->user_setup_menu_active=0;
 	RfGen._pGPStime->verbosity=(uint8_t)_verbosity[0]-'0';   
     int tick = 0;int tick2 = 0;  //used for timing various messages
 	LED_sequence_start_time = get_absolute_time();
-	if (_Datalog_mode[0]=='1') datalog_loop();
+
+	datalog_loop();
 	
-    for(;;)   //loop every ~ half second
-    {		
 
-		if(WSPRbeaconIsGPSsolutionActive(pWB))
-			{
-				char *pgps_qth = WSPRbeaconGetLastQTHLocator(pWB);  //GET MAIDENHEAD       - this code in original fork wasnt working due to error in WSPRbeacon.c
-				if(pgps_qth)
-					strncpy(pWB->_pu8_locator, pgps_qth, 6);     //does full 6 char maidenhead 									 
-			if (pWSPR->_pTX->_p_oscillator->_pGPStime->_time_data.sat_count > pWSPR->_txSched.max_sats_seen_today) pWSPR->_txSched.max_sats_seen_today=pWSPR->_pTX->_p_oscillator->_pGPStime->_time_data.sat_count;
-			}        
-        WSPRbeaconTxScheduler(pWB, YES);   
-                
-		if (pWB->_txSched.verbosity>=5)
-		{
-				if(0 == ++tick % 20)      //every ~20 secs dumps context.  
-				 WSPRbeaconDumpContext(pWB);
-		}	
-
-		if (getchar_timeout_us(0)>0)   //looks for input on USB serial port only. Note: getchar_timeout_us(0) returns a -2 (as of sdk 2) if no keypress. But if you force it into a Char type, becomes something else
-			{
-			RfGen._pGPStime->user_setup_menu_active=1;	
-			user_interface();   
-			}
-
-		const float conversionFactor = 3.3f / (1 << 12);          //read temperature
-		adc_select_input(4);	
-		float adc = (float)adc_read() * conversionFactor;
-		float tempC_raw = 27.0f - (adc - 0.706f) / 0.001721f;		
-		if (tempC==0) tempC=tempC_raw;  //if tempC still uninitialized, preload its value
-		tempC= (0.99*tempC) + (0.01*tempC_raw);  // implements a 1st order IIR lowpass filter (aka "one-line DSP")
-		pWB->_txSched.temp_in_Celsius=tempC;           
-		RfGen._pGPStime->temp_in_Celsius=tempC;
-		
-		adc_select_input(3);  //if setup correctly, ADC3 reads Vsys   // read voltage
-		float volts_raw = 3*(float)adc_read() * conversionFactor;         //times 3 because of onboard voltage divider
-		if (volts==0) volts=volts_raw; //if volts still uninitialized, preload its value
-		volts=	(0.99*volts)+(0.01*volts_raw);	// implements a 1st order IIR lowpass filter (aka "one-line DSP")
-		pWB->_txSched.voltage=volts;
-
- 		process_TELEN_data();                          //if needed, this puts data into DEXT variables. You can remove this and set the data yourself as shown in the next few lines
-			/*pctx->telem_vals_and_ranges[2][0]=(v_and_r){2,8};  //[slot], specified range (inclusive of zero) and value for each 
-			  pctx->telem_vals_and_ranges[2][1]=(v_and_r){2,3};
-			  pctx->telem_vals_and_ranges[2][2]=(v_and_r){3,2};
-			   .......   */
-				if(0 == ++tick2 % 10)      //every ~5 sec
-				{
-				if (pWB->_txSched.verbosity>=1) StampPrintf("Temp: %0.1f  Volts: %0.1f  Altitude: %0.0f  Satellite count: %d\n", tempU,volts,RfGen._pGPStime->_altitude ,RfGen._pGPStime->_time_data.sat_count);		
-				//if (pWB->_txSched.verbosity>=3) printf("TELEN Vals 1 through 4:  %d %d %d %d\n",telen_values[0],telen_values[1],telen_values[2],telen_values[3]);
-				}
-		
-		for (int i=0;i < 10;i++) //Implements a pause of total 500ms, and spends it handling LED output
-			{
-				handle_LED(pWB->_txSched.led_mode); 
-				sleep_ms(50); 
-			}
-		DoLogPrint(); 	
-	}
 }
 ///////////////////////////////////
 static void sleep_callback(void) {
@@ -209,69 +138,6 @@ static void sleep_callback(void) {
 /*****************************************************************************************************************/
 /*****************************************************************************************************************/
 /*****************************************************************************************************************/
-
-void process_TELEN_data(void)
-{
-		const float conversionFactor = 33.0f / (1 << 12);   //. the 3.3 is from vref, the 10 is to convert to volt tenths the 12 bit shift is because thats resolution of ADC
-
-
-		for (int i=2;i < 5;i++) //i is slot # (2,3,4)
-		{			
-		   switch(_DEXT_config[i-2])   //see end for traquito site scaling  
-			{
-				case '-':  break; //do nothing, telen chan is disabled
-				case '0': 			//Minutes Since Boot, Minutes since GPS fix, GPS Valid, Sat Count (max: 1000,1000,1,60)
-							pWSPR->telem_vals_and_ranges[i][0]=(v_and_r){pWSPR->_txSched.minutes_since_boot,1001}; 
-							pWSPR->telem_vals_and_ranges[i][1]=(v_and_r){pWSPR->_txSched.seconds_for_lock,1001}; 
-							pWSPR->telem_vals_and_ranges[i][2]=(v_and_r){pWSPR->_pTX->_p_oscillator->_pGPStime->_time_data._u8_is_solution_active,2}; 
-							pWSPR->telem_vals_and_ranges[i][3]=(v_and_r){pWSPR->_pTX->_p_oscillator->_pGPStime->_time_data.sat_count,61}; 
-							break;
-	
-				case '1': 			//ADC 0, 1, 2 (in tenths) (max: 350, 350, 350)
-							adc_select_input(0); pWSPR->telem_vals_and_ranges[i][0]=(v_and_r){round((float)adc_read() * conversionFactor),351};
-							adc_select_input(1); pWSPR->telem_vals_and_ranges[i][1]=(v_and_r){round((float)adc_read() * conversionFactor),351};
-							adc_select_input(2); pWSPR->telem_vals_and_ranges[i][2]=(v_and_r){round((float)adc_read() * conversionFactor),351};
-							break;
-
-				case '2': 			//bus volts ADC3 (in hundreth, scaled), Dallas 1 (and sign), sat count (max: 900,120,1,60)
-							break;
-							
-				case '5': 			//(must be used in first DEXT slot) sends additional 4 chars of Maidenhead 
-		
-							//printf("chars 7-10 %d %d %d %d and as chars %c%c%c%c   \n",pWSPR->grid7,pWSPR->grid8,pWSPR->grid9,pWSPR->grid10,pWSPR->grid7,pWSPR->grid8,pWSPR->grid9,pWSPR->grid10);
-							pWSPR->telem_vals_and_ranges[i][0 ]=(v_and_r){pWSPR->grid7-'0' ,10}; 
-							pWSPR->telem_vals_and_ranges[i][1 ]=(v_and_r){pWSPR->grid8 -'0',10};
-							pWSPR->telem_vals_and_ranges[i][2 ]=(v_and_r){pWSPR->grid9 -'A',24}; 
-							pWSPR->telem_vals_and_ranges[i][3 ]=(v_and_r){pWSPR->grid10-'A',24}; 
-							pWSPR->telem_vals_and_ranges[i][4]=(v_and_r){(int)round(pWSPR->_txSched.minutes_since_boot/10.0),101}; 
-							pWSPR->telem_vals_and_ranges[i][5]=(v_and_r){(int)round(pWSPR->_txSched.seconds_for_lock/2.0),101}; 			
-							break;
-							
-				case '6': 			//idle and xmit volts, some low res times            
-		
-							pWSPR->telem_vals_and_ranges[i][0 ]=(v_and_r){ (int)round(100*pWSPR->_txSched.voltage_at_idle) ,501}; 
-							pWSPR->telem_vals_and_ranges[i][1 ]=(v_and_r){ (int)round(100*pWSPR->_txSched.voltage_at_xmit) ,501}; 
-							pWSPR->telem_vals_and_ranges[i][2]=(v_and_r){(int)round(pWSPR->_txSched.minutes_since_boot/10.0),61}; 
-							pWSPR->telem_vals_and_ranges[i][3]=(v_and_r){(int)round(pWSPR->_txSched.seconds_for_lock/40.0),61}; 			
-							
-							break;
-
-				case '7': 			//high res GPS lock/loss times
-
-							/*  not applicable for logger
-							pWSPR->telem_vals_and_ranges[i][0]=(v_and_r){pWSPR->_txSched.seconds_since_GPS_aquisition,3601}; 
-							pWSPR->telem_vals_and_ranges[i][1]=(v_and_r){pWSPR->_txSched.seconds_since_GPS_loss,3601}; */
-							pWSPR->telem_vals_and_ranges[i][2]=(v_and_r){(int)round(pWSPR->_txSched.minutes_since_boot/10.0),37}; 									
-							
-							break;
-
-				case '8': 			//some things   (58-)
-							pWSPR->telem_vals_and_ranges[i][0]=(v_and_r){pWSPR->_txSched.max_sats_seen_today,61}; 
-							pWSPR->telem_vals_and_ranges[i][1]=(v_and_r){(uint32_t)pWSPR->_txSched.seconds_for_lock,1801}; 
-							pWSPR->telem_vals_and_ranges[i][2]=(v_and_r){round((float)adc_read() * conversionFactor * 3.0f * 10),901}; 									
-			}	
-		}
-}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 void handle_LED(int led_state)
@@ -343,14 +209,7 @@ printf(CURSOR_HOME);
 printf(BRIGHT);
 printf("\n\n\n\n\n\n\n\n\n\n\n\n");
 printf("================================================================================\n\n");printf(UNDERLINE_ON);
-printf("logger (Just Another Wspr Beacon Of Noisy Electronics) by KC3LBR,  version: %s %s\n\n",__DATE__ ,__TIME__);printf(UNDERLINE_OFF);printf(NORMAL); 
-printf("Instructions and source: https://github.com/EngineerGuy314/logger\n");
-printf("Originally forked from : https://github.com/RPiks/pico-WSPR-tx\n");
-printf("Additional functions, fixes and documention by https://github.com/serych\n");
-printf("Consult https://traquito.github.io/channelmap/ to find and reserve an open channel \n\n");printf(BRIGHT);printf(UNDERLINE_ON);
-printf("BAND ENUMERATION:\n");printf(UNDERLINE_OFF);
-printf("(default is 'H' 20 Meter) F:40,G:30,H:20,I:17,J:15,K:12,L:10,M:6 \n");
-printf("---WARNING!--- For bands other than H (20M)  you may need to use a different U4B channel to get the starting minute you want!!\n\n");
+printf("logger (long term GPS posiiton logger) by KC3LBR,  version: %s %s\n\n",__DATE__ ,__TIME__);printf(UNDERLINE_OFF);printf(NORMAL); 
 
 
 
@@ -369,41 +228,7 @@ printf(CLEAR_SCREEN);
 
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-void show_TELEN_msg()
-{
-printf(BRIGHT);
-printf("\n\n\n\n");printf(UNDERLINE_ON);
-printf("DEXT (Doug's EXtended Telemetry) CONFIG INSTRUCTIONS:\n\n");printf(UNDERLINE_OFF);
-printf(NORMAL); 
-printf("\n (DEXT is also known as community driven Extended Telemetry )\n\n");
-printf("* There are 3 possible DEXT values, corresponding to DEXT slots 2,3 and 4,\n");
-printf("  (Slots 0 and 1 are used by WSPR Type 1 and U4B Basic Telemetry)\n");
-printf("  DEXT slot 2 type, DEXT slot 3 type and DEXT slot 4 type.\n");
-printf("* Enter 3 characters in DEXT_config. use a '-' (minus) to disable one \n");
-printf("  or more values.\n* example: '---' disables all DEXT \n");
-printf("* example: '01-' sets DEXT 2  to type 0, \n  DEXT 3 to type 1,  disables DEXT slot 4 \n"); printf(BRIGHT);printf(UNDERLINE_ON);
-printf("\nDEXT Types:\n\n");printf(UNDERLINE_OFF);printf(NORMAL); 
-printf("-: disabled, 0: minutes since boot, minutes since GPS fix aquired, GPS valid bit and Sat count \n");
-printf("... many more !... \n");
-printf("See the Wiki for full list and range info.\n\n");
-}
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-/**
- * @brief Function that implements simple user interface via UART
- * 
- * For every new config variable to be added to the interface:
-	1: create a global character array at top of main.c 
-	2: add entry in read_NVRAM()
-	3: add entry in write_NVRAM()
-	4: add limit checking in check_data_validity()
-	5: add limit checking in check_data_validity_and_set_defaults()
-	6: add TWO entries in show_values() (to display name and value, and also to display which key is used to change it)
-	7: add CASE statement entry in user_interface()
-	8: Either do something with the variable locally in Main.c, or if needed elsewhere:
-		-- add a member to the GPStimeContext or WSPRbeaconContext structure
-		-- add code in main.c to move the data from the local _tag to the context structure
-		-- do something with the data elsewhere in the program
- */
 void user_interface(void)                                //called if keystroke from terminal on USB detected during operation.
 {
 int c;
@@ -419,7 +244,7 @@ show_values();          /* shows current VALUES  AND list of Valid Commands */
     for(;;)
 	{	
 																 printf(UNDERLINE_ON);printf(BRIGHT);
-		printf("\nEnter the command (X,C,S,U,B,V,P,T,B,F,O):");printf(UNDERLINE_OFF);printf(NORMAL);	
+		printf("\nEnter the command (D,?):");printf(UNDERLINE_OFF);printf(NORMAL);	
 		c=getchar_timeout_us(60000000);		   //just in case user setup menu was enterred during flight, this will reboot after 60 secs
 		printf("%c\n", c);
 		if (c==PICO_ERROR_TIMEOUT) {printf(CLEAR_SCREEN);printf("\n\n TIMEOUT WAITING FOR INPUT, REBOOTING FOR YOUR OWN GOOD!\n");sleep_ms(100);watchdog_enable(100, 1);for(;;)	{}}
@@ -430,7 +255,7 @@ show_values();          /* shows current VALUES  AND list of Valid Commands */
 			//case 'R':printf(CLEAR_SCREEN);printf("\n\nCorrupting data..");strncpy(_callsign,"!^&*(",6);write_NVRAM();watchdog_enable(100, 1);for(;;)	{}  //used for testing NVRAM check on boot feature
 			case 'C':get_user_input("Enter callsign: ",_callsign,sizeof(_callsign)); convertToUpperCase(_callsign); write_NVRAM(); break;
 			case 'S':get_user_input("Enter single digit numeric suffix: ", _suffix, sizeof(_suffix)); convertToUpperCase(_suffix); write_NVRAM(); break;
-			case 'U':get_user_input("Enter U4B channel: ", _U4B_chan, sizeof(_U4B_chan)); process_chan_num(); write_NVRAM(); break;
+			
 			case 'B':get_user_input("Band (F-M): ", _band, sizeof(_band));   convertToUpperCase(_band); write_NVRAM(); break;
 /*			case 'I':get_user_input("Enter id13: ", _id13,sizeof(_id13)); convertToUpperCase(_id13); write_NVRAM(); break; //still possible but not listed or recommended
 			case 'M':get_user_input("Enter starting Minute: ", _start_minute, sizeof(_start_minute)); write_NVRAM(); break; //still possible but not listed or recommended. i suppose needed for when to start standalone beacon or Zachtek
@@ -440,9 +265,9 @@ show_values();          /* shows current VALUES  AND list of Valid Commands */
 			case 'O':get_user_input("Optional debug (0-255 bitmapped): ", _Optional_Debug, sizeof(_Optional_Debug)); write_NVRAM(); break;
 //			case 'P':get_user_input("custom Pcb mode (0,1): ", _custom_PCB, sizeof(_custom_PCB)); write_NVRAM(); break;
 			//case 'H':get_user_input("band Hop mode (0,1): ", _band_hop, sizeof(_band_hop)); write_NVRAM(); break;
-			case 'T':show_TELEN_msg();get_user_input("Telemetry (dexT) config: ", _DEXT_config, sizeof(_DEXT_config)-1); convertToUpperCase(_DEXT_config); write_NVRAM(); break;
+			
 			//case 'B':get_user_input("Battery mode (0,1): ", _battery_mode, sizeof(_battery_mode)); write_NVRAM(); break;
-			/*case 'D':get_user_input("Data-log mode (0,1,Wipe,Dump): ", _Datalog_mode, sizeof(_Datalog_mode));
+			case 'D':get_user_input("Data-log mode (0,1,Wipe,Dump): ", _Datalog_mode, sizeof(_Datalog_mode));
 						convertToUpperCase(_Datalog_mode);
 						if ((_Datalog_mode[0]=='D') || (_Datalog_mode[0]=='W') ) 
 								{
@@ -450,31 +275,11 @@ show_values();          /* shows current VALUES  AND list of Valid Commands */
 									_Datalog_mode[0]='0';
 								}						 
 							write_NVRAM(); 
-						break;*/
+						break;
 
 			//case 'K':get_user_input("Klock speed: ", _Klock_speed, sizeof(_Klock_speed)); write_NVRAM(); break;
 			
-			case 'F':
-				printf("Fixed Frequency output (antenna tuning mode). Enter frequency (for example 14.097) or 0 for exit.\n\t");
-				char _tuning_freq[12];
-				float frequency;
-				while(1)
-				{
-					get_user_input("Frequency to generate (MHz):  ", _tuning_freq, sizeof(_tuning_freq));  //blocking until next input
-					frequency = 1000000*atof(_tuning_freq);
-					if (!frequency) {break;}
-					InitPicoPins();			// Sets GPIO pins roles and directions and also ADC for voltage and temperature measurements (NVRAM must be read BEFORE this, otherwise dont know how to map IO)
-					gpio_put(VFO_ENABLE_PIN,0);  //turns on VFO
-					sleep_ms(2);
-					printf("Generating %f Hz.   Press any key to stop. \n", frequency);
-					si5351aSetFrequency((uint64_t)(frequency*(uint64_t)100));
-					c=getchar();c=getchar();
-					si5351_stop();				
-					gpio_put(VFO_ENABLE_PIN,1);  //turns off VFO										
-					break;
-				}
-				break;
-
+			
 			/*case '<': {printf("< was pressed");InitPicoPins();gpio_put(VFO_ENABLE_PIN,0);I2C_init();sleep_ms(2);si5351aSetFrequency(1400000000);} break;
 			case '>': {printf("> was pressed");InitPicoPins();gpio_put(GPS_ENABLE_PIN,0);} break;
 			case '?': {printf("? was pressed");InitPicoPins();gpio_put(VFO_ENABLE_PIN,1);gpio_put(GPS_ENABLE_PIN,1);} break;
@@ -560,7 +365,7 @@ void write_NVRAM(void)
 void check_data_validity_and_set_defaults(void)
 {
 //do some basic plausibility checking on data, set reasonable defaults if memory was uninitialized							
-	if ( ((_callsign[0]<'A') || (_callsign[0]>'Z')) && ((_callsign[0]<'0') || (_callsign[0]>'9'))    ) {   strncpy(_callsign,"AB1CDE",6);     ; write_NVRAM();} 
+/*	if ( ((_callsign[0]<'A') || (_callsign[0]>'Z')) && ((_callsign[0]<'0') || (_callsign[0]>'9'))    ) {   strncpy(_callsign,"AB1CDE",6);     ; write_NVRAM();} 
 	if ( ((_suffix[0]<'0') || (_suffix[0]>'9')) && (_suffix[0]!='X') ) {_suffix[0]='-'; write_NVRAM();} //by default, disable zachtek suffix
 	if ( (_id13[0]!='0') && (_id13[0]!='1') && (_id13[0]!='Q')&& (_id13[0]!='-')) {strncpy(_id13,"Q0",2); write_NVRAM();}
 	if ( (_start_minute[0]!='0') && (_start_minute[0]!='2') && (_start_minute[0]!='4')&& (_start_minute[0]!='6')&& (_start_minute[0]!='8')) {_start_minute[0]='0'; write_NVRAM();}
@@ -572,15 +377,15 @@ void check_data_validity_and_set_defaults(void)
 	if ( (_DEXT_config[0]<'0') || (_DEXT_config[0]>'F')) {strncpy(_DEXT_config,"---",3); write_NVRAM();}
 	if ( (_battery_mode[0]<'0') || (_battery_mode[0]>'1')) {_battery_mode[0]='0'; write_NVRAM();} //
 	if ( (atoi(_Klock_speed)<5) || (atoi(_Klock_speed)>300)) {strcpy(_Klock_speed,"18"); write_NVRAM();} 
-	if ( (atoi(_U4B_chan)<0) || (atoi(_U4B_chan)>599)) {strcpy(_U4B_chan,"599"); write_NVRAM();} 
+	if ( (atoi(_U4B_chan)<0) || (atoi(_U4B_chan)>599)) {strcpy(_U4B_chan,"599"); write_NVRAM();}   */
 	if ( (_Datalog_mode[0]!='0') && (_Datalog_mode[0]!='1') && (_Datalog_mode[0]!='D') && (_Datalog_mode[0]!='W')) {_Datalog_mode[0]='0'; write_NVRAM();}
-	if ( (_band_hop[0]<'0') || (_band_hop[0]>'1')) {_band_hop[0]='0'; write_NVRAM();} //
-	if ( (_band[0]<'F') || (_band[0]>'M')) {_band[0]='H'; write_NVRAM();} //
+	/*if ( (_band_hop[0]<'0') || (_band_hop[0]>'1')) {_band_hop[0]='0'; write_NVRAM();} 
+	if ( (_band[0]<'F') || (_band[0]>'M')) {_band[0]='H'; write_NVRAM();} */
 
 //certain modes have been hidden. following lines make sure they are not accidentally enabled from data corruption
 strcpy(_Klock_speed,"18");
 _battery_mode[0]='0';
-_Datalog_mode[0]='0';
+//////_Datalog_mode[0]='0';
 _band_hop[0]='0'; 
 
 }
@@ -594,7 +399,7 @@ int check_data_validity(void)
 {
 int result=1;	
 //do some basic plausibility checking on data				
-	if ( ((_callsign[0]<'A') || (_callsign[0]>'Z')) && ((_callsign[0]<'0') || (_callsign[0]>'9'))    ) {result=-1;} 
+	/*if ( ((_callsign[0]<'A') || (_callsign[0]>'Z')) && ((_callsign[0]<'0') || (_callsign[0]>'9'))    ) {result=-1;} 
 	if ( ((_suffix[0]<'0') || (_suffix[0]>'9')) && (_suffix[0]!='-') && (_suffix[0]!='X') ) {result=-1;} 
 	if ( (_id13[0]!='0') && (_id13[0]!='1') && (_id13[0]!='Q')&& (_id13[0]!='-')) {result=-1;}
 	if ( (_start_minute[0]!='0') && (_start_minute[0]!='2') && (_start_minute[0]!='4')&& (_start_minute[0]!='6')&& (_start_minute[0]!='8')) {result=-1;}
@@ -604,11 +409,11 @@ int result=1;
 	if ( (_custom_PCB[0]<'0') || (_custom_PCB[0]>'1')) {result=-1;} 
 	if ( ((_DEXT_config[0]<'0') || (_DEXT_config[0]>'F'))&& (_DEXT_config[0]!='-')) {result=-1;}
 	if ( (_battery_mode[0]<'0') || (_battery_mode[0]>'1')) {result=-1;} 	
-	if ( (atoi(_Klock_speed)<5) || (atoi(_Klock_speed)>300)) {result=-1;} 	
+	if ( (atoi(_Klock_speed)<5) || (atoi(_Klock_speed)>300)) {result=-1;} 	*/
 	if ( (_Datalog_mode[0]!='0') && (_Datalog_mode[0]!='1')) {result=-1;}
-	if ( (atoi(_U4B_chan)<0) || (atoi(_U4B_chan)>599)) {result=-1;} 
+/*	if ( (atoi(_U4B_chan)<0) || (atoi(_U4B_chan)>599)) {result=-1;} 
 	if ( (_band_hop[0]<'0') || (_band_hop[0]>'1')) {result=-1;} 
-	if ( (_band[0]<'F') || (_band[0]>'M')) {result=-1;} 
+	if ( (_band[0]<'F') || (_band[0]>'M')) {result=-1;} */
 
 
 return result;
@@ -624,11 +429,11 @@ check_data_validity_and_set_defaults(); //added may 2025, will this cause proble
 
 int band_as_int=_band[0]-'A';       
 printf(CLEAR_SCREEN);
-printf("logger (Just Another Wspr Beacon Of Noisy Electronics) by KC3LBR,  version: %s %s\n\n",__DATE__ ,__TIME__);
+printf("logger  by KC3LBR,  version: %s %s\n\n",__DATE__ ,__TIME__);
 printf(UNDERLINE_ON);printf(BRIGHT);
 printf("\n\nCurrent values:\n");printf(UNDERLINE_OFF);printf(NORMAL);
 
-printf("\n\tCallsign:%s\n\t",_callsign);
+/*printf("\n\tCallsign:%s\n\t",_callsign);
 printf("Suffix (zachtek):%s   (please set to '-' if unused)\n\t",_suffix);
 printf("U4b channel:%s",_U4B_chan);
 printf(" (Id13:%s",_id13);
@@ -636,29 +441,29 @@ printf(" Start Minute:%s",_start_minute);
 printf(" Lane:%s)\n\t",_lane);
 printf("Band:%s (%d Hz)\n\t",_band,freqs[band_as_int]);
 printf("Verbosity:%s\n\t",_verbosity);
-printf("Optional debug:%s\n\t",_Optional_Debug);
+printf("Optional debug:%s\n\t",_Optional_Debug);*/
 //printf("custom Pcb IO mappings:%s\n\t",_custom_PCB);
-printf("Telemetry config:%s   (please set to '---' if unused)\n\t",_DEXT_config);
+//printf("Telemetry config:%s   (please set to '---' if unused)\n\t",_DEXT_config);
 //printf("Klock speed (temp) :%sMhz  \n",_Klock_speed);
-/*printf("Datalog mode:%s\n\t",_Datalog_mode);
-printf("Battery (low power) mode:%s\n\t",_battery_mode);
-printf("secret band Hopping mode:%s\n\n",_band_hop);*/
+printf("Datalog mode:%s\n\t",_Datalog_mode);
+/*printf("Battery (low power) mode:%s\n\t",_battery_mode);
+printf("secret band Hopping mode:%s\n\n",_band_hop);
 
 							printf(UNDERLINE_ON);printf(BRIGHT);
 printf("VALID commands: ");printf(UNDERLINE_OFF);printf(NORMAL);
 
-printf("\n\n\tX: eXit configuraiton and reboot\n\tC: change Callsign (6 char max)\n\t");
-printf("S: change Suffix ( for WSPR3/Zachtek) use '-' to disable WSPR3\n\t");
-printf("U: change U4b channel # (0-599)\n\t");
-printf("B: change Band (F-M) default 20M is H\n\t");
+printf("\n\n\tX: eXit configuraiton and reboot\n\t");
+//printf("S: change Suffix ( for WSPR3/Zachtek) use '-' to disable WSPR3\n\t");
+//printf("U: change U4b channel # (0-599)\n\t");
+//printf("B: change Band (F-M) default 20M is H\n\t");
 /*printf("I: change Id13 (two alpha numeric chars, ie Q8) use '--' to disable U4B\n\t");
 printf("M: change starting Minute (0,2,4,6,8)\n\tL: Lane (1,2,3,4) corresponding to 4 frequencies in 20M band\n\t");*/ //it is still possible to directly change these, but its not shown
 printf("V: Verbosity level (0 for no messages, 9 for too many) \n\t");
 printf("O: Optional debug functions (bitmapped 0 - 255) \n\t");
 //printf("P: custom Pcb mode IO mappings (0,1)\n\t");
-printf("T: Telemetry (dexT) config\n\t");
+//printf("T: Telemetry (dexT) config\n\t");
 //printf("K: Klock speed  \n\t");
-//printf("D: Datalog mode (0,1,(W)ipe memory, (D)ump memory) see wiki\n\t");
+printf("D: Datalog mode (0,1,(W)ipe memory, (D)ump memory) see wiki\n\t");
 //printf("B: Battery (low power) mode \n\t");
 printf("F: Frequency output (antenna tuning mode)\n\t");
 //printf("H: secret band Hopping mode \n\n");
@@ -682,35 +487,11 @@ void convertToUpperCase(char *str) {
  */
 void InitPicoPins(void)
 {
-/*  gpio_init(18); 
-	gpio_set_dir(18, GPIO_OUT); //GPIO 18 used for fan control when testing TCXO stability */
-
 			gpio_init(GPS_ENABLE_PIN); gpio_set_dir(GPS_ENABLE_PIN, GPIO_OUT); //initialize GPS enable output (INVERSE LOGIC on custom PCB, so just initialize it, leave it at zero state)	
-			gpio_init(VFO_ENABLE_PIN); gpio_set_dir(VFO_ENABLE_PIN, GPIO_OUT); //initialize VFO synth enable output (INVERSE LOGIC on custom PCB)
 			gpio_put(GPS_ENABLE_PIN,1);
-			gpio_put(VFO_ENABLE_PIN,1);
 			//this turn them BOTH off, must turn on later as needed
 	
 	
-	for (int i=0;i < 3;i++)   //init ADC(s) as needed for TELEN
-		{			
-/* 		removed (temporarily) Jane 2025 because 0 1 and 2 are used for custome DEXT messages, NOT actual ADC channel reads. ADC chan initiation needs to be done if/when you use a DEXt that includes analog. I dont think thats implemented yet
-
-		 switch(_DEXT_config[i])
-			{
-				case '-':  break; //do nothing, telen chan is disabled
-				case '0': gpio_init(26);gpio_set_dir(26, GPIO_IN);gpio_set_pulls(26,0,0);break;
-				case '1': gpio_init(27);gpio_set_dir(27, GPIO_IN);gpio_set_pulls(27,0,0);break;
-				case '2': gpio_init(28);gpio_set_dir(28, GPIO_IN);gpio_set_pulls(28,0,0);break; 
-			}
-			*/
-		}
-	
-	gpio_init(PICO_VSYS_PIN);  		//Prepare ADC 3 to read Vsys
-	gpio_set_dir(PICO_VSYS_PIN, GPIO_IN);
-	gpio_set_pulls(PICO_VSYS_PIN,0,0);
-    adc_init();
-    adc_set_temp_sensor_enabled(true); 	//Enable the onboard temperature sensor
 
 }
 
@@ -917,95 +698,3 @@ void go_to_sleep()
 			{watchdog_enable(100, 1);for(;;)	{} }  //recovering from sleep is messy, so this makes it reboot to get a fresh start
 			*/
 }
-////////////////////////////////////
-void process_chan_num()   //need to update for bands other than 20M and 10M
-{
-	if ( (atoi(_U4B_chan)>=0) && (atoi(_U4B_chan)<600)) 
-	{
-		
-		_id13[0]='1';
-		if  (atoi(_U4B_chan)<200) _id13[0]='0';
-		if  (atoi(_U4B_chan)>399) _id13[0]='Q';
-
-		int id3 = (atoi(_U4B_chan) % 200) / 20;
-		_id13[1]=id3+'0';
-		
-		int lane = (atoi(_U4B_chan) % 20) / 5;
-		_lane[0]=lane+'1';
-
-		int txSlot = atoi(_U4B_chan) % 5;
-		
-
-		_start_minute[0] = '0' + (2*((txSlot+14)%5)); //default starting minute for 20M
-
-		if (_band[0]=='L')  //10 Meter
-		_start_minute[0] = '0' + (2*((txSlot+12)%5)); 
-
-	}
-}
-/**
-* @note:
-* Verbosity notes:
-* 0: none
-* 1: temp/volts every second, message if no gps
-* 2: GPS status every second
-* 3:          messages when a xmition started
-* 4: x-tended messages when a xmition started 
-* 5: dump context every 20 secs
-* 6: show PPB every second
-* 7: Display GxRMC and GxGGA messages
-* 8: display ALL serial input from GPS module
-*/
-
-//DEXT definitions:
-/*
-0:
-{ "name": "MinSinceBoot",      "unit": "Count",  "lowValue":   0, "highValue": 1000,    "stepSize": 1 },
-{ "name": "MinSinceGPSValid",    "unit": "Count",  "lowValue":   0, "highValue": 1000,    "stepSize": 1 },
-{ "name": "GPS_Valid",   "unit": "Count",  "lowValue":   0, "highValue": 1,    "stepSize": 1 },
-{ "name": "SatCount",       "unit": "Count",  "lowValue":   0, "highValue": 60,    "stepSize": 1 },
-
-1:
-{ "name": "ADC0",      "unit": "Count",  "lowValue":   0, "highValue": 350,    "stepSize": 1 },
-{ "name": "ADC1",      "unit": "Count",  "lowValue":   0, "highValue": 350,    "stepSize": 1 },
-{ "name": "ADC2",      "unit": "Count",  "lowValue":   0, "highValue": 350,    "stepSize": 1 },
-
-2:
-{ "name": "BusVolts",      "unit": "Count",  "lowValue":   0, "highValue": 900,    "stepSize": 1 },
-{ "name": "DALLAS1",      "unit": "Count",  "lowValue":   0, "highValue": 120,    "stepSize": 1 },
-{ "name": "Dallas1_sign",      "unit": "Count",  "lowValue":   0, "highValue": 1,    "stepSize": 1 },
-{ "name": "SatCount",       "unit": "Count",  "lowValue":   0, "highValue": 60,    "stepSize": 1 },
-
-
-3:
-{ "name": "DALLAS1",      "unit": "Count",  "lowValue":   0, "highValue": 120,    "stepSize": 1 },
-{ "name": "Dallas1_sign",      "unit": "Count",  "lowValue":   0, "highValue": 1,    "stepSize": 1 },
-{ "name": "DALLAS2",      "unit": "Count",  "lowValue":   0, "highValue": 120,    "stepSize": 1 },
-{ "name": "Dallas2_sign",      "unit": "Count",  "lowValue":   0, "highValue": 1,    "stepSize": 1 },
-
-3:
-{ "name": "DALLAS3",      "unit": "Count",  "lowValue":   0, "highValue": 120,    "stepSize": 1 },
-{ "name": "Dallas3_sign",      "unit": "Count",  "lowValue":   0, "highValue": 1,    "stepSize": 1 },
-{ "name": "DALLAS4",      "unit": "Count",  "lowValue":   0, "highValue": 120,    "stepSize": 1 },
-{ "name": "Dallas4_sign",      "unit": "Count",  "lowValue":   0, "highValue": 1,    "stepSize": 1 },
-
-5:
-{ "name": "grid_char7",   "unit": "digit",   "lowValue":   0,    "highValue": 9,    "stepSize": 1   },
-{ "name": "grid_char8",   "unit": "digit",    "lowValue":   0,    "highValue":    9,    "stepSize":  1 },
-{ "name": "grid_char9",   "unit": "alpha",      "lowValue":   0,    "highValue":   23,    "stepSize":  1 },
-{ "name": "grid_char10",  "unit": "alpha",      "lowValue":   0,  "highValue":     23,  "stepSize":  1 },
-{ "name": "since_boot",   "unit": "minutes10",    "lowValue":   0,  "highValue":     100,  "stepSize":  1 },
-{ "name": "time_for_lock_2s",  "unit": "double_secs",  "lowValue":   0,  "highValue":     100,  "stepSize":  1 },
-
-
-7:
-{ "name": "since_lock",     "unit": "secs",   "lowValue":   0,    "highValue": 3600,    "stepSize": 1   },
-{ "name": "since_loss",      "unit": "secs",    "lowValue":   0,    "highValue":    3600,    "stepSize":  1   },
-{ "name": "since_boot_tens",      "unit": "mins",    "lowValue":   0,    "highValue":    36,    "stepSize":  1   },
-
-8:
-{ "name": "most_sats_seen_today",      "unit": "Count",  "lowValue":   0, "highValue": 60,    "stepSize": 1 },
-{ "name": "seconds_for_1st_aquisition","unit": "Count","lowValue":   0, "highValue": 1800,    "stepSize": 1 },
-{ "name": "Vbus",   "unit": "mV",  "lowValue":   0, "highValue": 900,    "stepSize": 1 },
-
- */
