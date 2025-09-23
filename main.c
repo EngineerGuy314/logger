@@ -666,10 +666,11 @@ void datalog_loop()          //datalogging is very out of date
 
 }
 ///////////////////////////////////
+/*
 static void sleep_callback(void) {
     printf("RTC woke us up\n");
-	uart_default_tx_wait_blocking();
-}
+	//uart_default_tx_wait_blocking();
+}*/
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void reboot_now()
 {
@@ -678,65 +679,36 @@ printf("\n\nrebooting...");watchdog_enable(100, 1);for(;;)	{}
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Go to sleep until woken up by the RTC
 void sleep_goto_sleep_until_OLD_VERSION_pre_v2(datetime_t *t, rtc_callback_t callback) {
-    // We should have already called the sleep_run_from_dormant_source function
-    assert(dormant_source_valid(_dormant_source));
+
 
     // Turn off all clocks when in sleep mode except for RTC
     clocks_hw->sleep_en0 = CLOCKS_SLEEP_EN0_CLK_RTC_RTC_BITS;
     clocks_hw->sleep_en1 = 0x0;
 
-    rtc_set_alarm(t, callback);
+    rtc_set_alarm(t, NULL);
 
     uint save = scb_hw->scr;
     // Enable deep sleep at the proc
     scb_hw->scr = save | M0PLUS_SCR_SLEEPDEEP_BITS;
 
     // Go to sleep
-    __wfi();
+    __wfi();   //executes the assembly instruction WFI = Wait For Interrup
 }
 /////////
 void go_to_sleep()
 {
 			
-/* This is the stuff that should have worked in v2 sdk, but dont	
-			struct timespec ts = { .tv_sec = 0, .tv_nsec = 0 };
-			aon_timer_start(&ts);
-			uart_default_tx_wait_blocking();
-			
-			        // Set the crystal oscillator as the dormant clock source, UART will be reconfigured from here
-        // This is only really necessary before sending the pico into dormancy but running from xosc while asleep saves power
-        sleep_run_from_xosc();
-			
-			struct timespec alarm_time;
-
-			aon_timer_get_time(&alarm_time);
-			alarm_time.tv_sec += 3;
-
-			///////sleep_run_from_rosc();
-			
-			//////sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
-			 uart_default_tx_wait_blocking();
-			sleep_goto_sleep_until(&alarm_time, &sleep_callback);	//blocks here during sleep perfiod
-			
-			watchdog_enable(100, 1);for(;;)	{}   //recovering from sleep is messy, so this makes it reboot to get a fresh start
-			*/
-		
-
-
-	
 			datetime_t t = {.year  = 2020,.month = 01,.day= 01, .dotw= 1,.hour=1,.min= 1,.sec = 00};			
 			rtc_init(); // Start the RTC
 			rtc_set_datetime(&t);
-			uart_default_tx_wait_blocking();
-			datetime_t alarm_time = t;
 
-			//alarm_time.min += 20;	//sleep for 20 minutes.
-			alarm_time.sec += 3;
 
-			gpio_set_irq_enabled(GPS_PPS_PIN, GPIO_IRQ_EDGE_RISE, false); //this is needed to disable IRQ callback on PPS
-			
+			//t.min += 20;	//sleep for 20 minutes.
+			t.sec += 5;
+
+	
 			sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
-			sleep_goto_sleep_until_OLD_VERSION_pre_v2(&alarm_time, &sleep_callback);	//blocks here during sleep perfiod
+			sleep_goto_sleep_until_OLD_VERSION_pre_v2(&t, NULL);	//blocks here during sleep perfiod// when pico-extras changed to sdk v2 they screwed this up. i am using their routine from before that
 			{watchdog_enable(100, 1);for(;;)	{} }  //recovering from sleep is messy, so this makes it reboot to get a fresh start
 		
 			
