@@ -661,55 +661,36 @@ void datalog_loop()          //datalogging is very out of date
 				printf("About to sleep!\n");
 				gpio_set_dir(GPS_ENABLE_PIN, GPIO_IN);  //let the mosfet drive float
 
-
 				go_to_sleep();
 
 }
-///////////////////////////////////
-/*
-static void sleep_callback(void) {
-    printf("RTC woke us up\n");
-	//uart_default_tx_wait_blocking();
-}*/
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void reboot_now()
 {
 printf("\n\nrebooting...");watchdog_enable(100, 1);for(;;)	{}
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Go to sleep until woken up by the RTC
-void sleep_goto_sleep_until_OLD_VERSION_pre_v2(datetime_t *t, rtc_callback_t callback) {
 
-
-    // Turn off all clocks when in sleep mode except for RTC
-    clocks_hw->sleep_en0 = CLOCKS_SLEEP_EN0_CLK_RTC_RTC_BITS;
-    clocks_hw->sleep_en1 = 0x0;
-
-    rtc_set_alarm(t, NULL);
-
-    uint save = scb_hw->scr;
-    // Enable deep sleep at the proc
-    scb_hw->scr = save | M0PLUS_SCR_SLEEPDEEP_BITS;
-
-    // Go to sleep
-    __wfi();   //executes the assembly instruction WFI = Wait For Interrup
-}
-/////////
 void go_to_sleep()
-{
-			
+{			
 			datetime_t t = {.year  = 2020,.month = 01,.day= 01, .dotw= 1,.hour=1,.min= 1,.sec = 00};			
 			rtc_init(); // Start the RTC
 			rtc_set_datetime(&t);
 
+			//t.min += 20;	//sleep for 20 minutes.   BE CRAEFUL, dont exceed 59!?
+			t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
 
-			//t.min += 20;	//sleep for 20 minutes.
-			t.sec += 5;
-
-	
 			sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
-			sleep_goto_sleep_until_OLD_VERSION_pre_v2(&t, NULL);	//blocks here during sleep perfiod// when pico-extras changed to sdk v2 they screwed this up. i am using their routine from before that
-			{watchdog_enable(100, 1);for(;;)	{} }  //recovering from sleep is messy, so this makes it reboot to get a fresh start
-		
-			
+			// Turn off all clocks when in sleep mode except for RTC
+			clocks_hw->sleep_en0 = CLOCKS_SLEEP_EN0_CLK_RTC_RTC_BITS;
+			clocks_hw->sleep_en1 = 0x0;
+			rtc_set_alarm(&t, NULL);   //normally takes a pointer a routine (for a callback) but with NULL its just blocking once it hits __wfi
+			uint save = scb_hw->scr;
+			// Enable deep sleep at the proc
+			scb_hw->scr = save | M0PLUS_SCR_SLEEPDEEP_BITS;
+			// Go to sleep
+			__wfi();   //executes the assembly instruction WFI = Wait For Interrup. sits here until wakeup (blocking)
+						
+			{watchdog_enable(100, 1);for(;;)	{} }  //recovering from sleep is messy, so this makes it reboot to get a fresh start					
 }
