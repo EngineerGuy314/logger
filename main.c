@@ -18,7 +18,8 @@
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"
 #include "hardware/uart.h"
-#include "pico/sleep.h"      
+#include "pico/sleep.h"     
+#include "pico/aon_timer.h" 
 #include "hardware/rtc.h" 
 
 
@@ -95,33 +96,18 @@ int main()
 	set_sys_clock_khz( Main_System_Clock_Speed* 1000, true);
 	
 	InitPicoPins();			// Sets GPIO pins roles and directions and also ADC for voltage and temperature measurements (NVRAM must be read BEFORE this, otherwise dont know how to map IO)
-    printf("\nThe logger version: %s %s\nWSPR beacon init...",__DATE__ ,__TIME__);	//messages are sent to USB serial port, 115200 baud
+    printf("\nThe logger version: %s %s init...",__DATE__ ,__TIME__);	//messages are sent to USB serial port, 115200 baud
    
-	 WSPRbeaconContext *pWB = WSPRbeaconInit(
-        _callsign,/** the Callsign. */
-        CONFIG_LOCATOR4,/**< the default QTH locator if GPS isn't used. */
-        10,             /**< Tx power, dbm. */
-        0,
-        0,           /**< the carrier freq. shift relative to dial freq. */ //not used
-        RFOUT_PIN,       /**< RF output GPIO pin. */
-		(uint8_t)_start_minute[0]-'0',   /**< convert ASCI digits to ints  */
-		(uint8_t)_id13[0]-'0',   
-		(uint8_t)_suffix[0]-'0',
-		_DEXT_config,
-		&RfGen
-        );
-    pWSPR = pWB;  //this lets things outside this routine access the WB context
 
-	pWB->_txSched.led_mode = 0;  //0 means no serial comms from  GPS (critical fault if it remains that way)
-	pWB->_txSched.verbosity=(uint8_t)_verbosity[0]-'0';       /**< convert ASCI digit to int  */
-	pWB->_txSched.suffix=(uint8_t)_suffix[0]-'0';    /**< convert ASCI digit to int (value 253 if dash was entered) */
-	pWB->_txSched.Optional_Debug=(uint8_t)atoi(_Optional_Debug);
+
+//	pWB->_txSched.led_mode = 0;  //0 means no serial comms from  GPS (critical fault if it remains that way)
+
+	
+
 	RfGen._pGPStime = GPStimeInit(9600); 
+	RfGen._pGPStime->user_setup_menu_active=0;
 	RfGen._pGPStime->Optional_Debug=(uint8_t)atoi(_Optional_Debug);
 
-
-	RfGen._pGPStime->user_setup_menu_active=0;
-	RfGen._pGPStime->verbosity=(uint8_t)_verbosity[0]-'0';   
     int tick = 0;int tick2 = 0;  //used for timing various messages
 	LED_sequence_start_time = get_absolute_time();
 
@@ -129,10 +115,7 @@ int main()
 	
 
 }
-///////////////////////////////////
-static void sleep_callback(void) {
-    printf("RTC woke us up\n");
-}
+
 
 /*****************************************************************************************************************/
 /*****************************************************************************************************************/
@@ -370,10 +353,10 @@ void check_data_validity_and_set_defaults(void)
 	if ( (_id13[0]!='0') && (_id13[0]!='1') && (_id13[0]!='Q')&& (_id13[0]!='-')) {strncpy(_id13,"Q0",2); write_NVRAM();}
 	if ( (_start_minute[0]!='0') && (_start_minute[0]!='2') && (_start_minute[0]!='4')&& (_start_minute[0]!='6')&& (_start_minute[0]!='8')) {_start_minute[0]='0'; write_NVRAM();}
 	if ( (_lane[0]!='1') && (_lane[0]!='2') && (_lane[0]!='3')&& (_lane[0]!='4')) {_lane[0]='2'; write_NVRAM();}
-	if ( (_verbosity[0]<'0') || (_verbosity[0]>'9')) {_verbosity[0]='1'; write_NVRAM();} //set default verbosity to 1
+	if ( (_verbosity[0]<'0') || (_verbosity[0]>'9')) {_verbosity[0]='1'; write_NVRAM();} //set default verbosity to 1*/
 	if ( (atoi(_Optional_Debug)<0) || (atoi(_Optional_Debug)>255)) {strcpy(_Optional_Debug,"0"); _Optional_Debug[1]=0;write_NVRAM();} 
 	if (atoi(_Optional_Debug)==0) {strcpy(_Optional_Debug,"0"); _Optional_Debug[1]=0;}  //this is an anti-stupid in case _Optional_Debug has alpha (non numeric) content. atoi still evalues any alpha as zero, this makes damn sure that if its zero, its really a zero character in the variable. Doesnt do write_NVRAM, because somethig else will prolly do it anyway.
-	if ( (_custom_PCB[0]<'0') || (_custom_PCB[0]>'1')) {_custom_PCB[0]='0'; write_NVRAM();} //set default IO mapping to original Pi Pico configuration
+/*	if ( (_custom_PCB[0]<'0') || (_custom_PCB[0]>'1')) {_custom_PCB[0]='0'; write_NVRAM();} //set default IO mapping to original Pi Pico configuration
 	if ( (_DEXT_config[0]<'0') || (_DEXT_config[0]>'F')) {strncpy(_DEXT_config,"---",3); write_NVRAM();}
 	if ( (_battery_mode[0]<'0') || (_battery_mode[0]>'1')) {_battery_mode[0]='0'; write_NVRAM();} //
 	if ( (atoi(_Klock_speed)<5) || (atoi(_Klock_speed)>300)) {strcpy(_Klock_speed,"18"); write_NVRAM();} 
@@ -404,9 +387,9 @@ int result=1;
 	if ( (_id13[0]!='0') && (_id13[0]!='1') && (_id13[0]!='Q')&& (_id13[0]!='-')) {result=-1;}
 	if ( (_start_minute[0]!='0') && (_start_minute[0]!='2') && (_start_minute[0]!='4')&& (_start_minute[0]!='6')&& (_start_minute[0]!='8')) {result=-1;}
 	if ( (_lane[0]!='1') && (_lane[0]!='2') && (_lane[0]!='3')&& (_lane[0]!='4')) {result=-1;}
-	if ( (_verbosity[0]<'0') || (_verbosity[0]>'9')) {result=-1;} 
+	if ( (_verbosity[0]<'0') || (_verbosity[0]>'9')) {result=-1;} */
 	if ( (atoi(_Optional_Debug)<0) || (atoi(_Optional_Debug)>255)) {result=-1;} 
-	if ( (_custom_PCB[0]<'0') || (_custom_PCB[0]>'1')) {result=-1;} 
+	/*if ( (_custom_PCB[0]<'0') || (_custom_PCB[0]>'1')) {result=-1;} 
 	if ( ((_DEXT_config[0]<'0') || (_DEXT_config[0]>'F'))&& (_DEXT_config[0]!='-')) {result=-1;}
 	if ( (_battery_mode[0]<'0') || (_battery_mode[0]>'1')) {result=-1;} 	
 	if ( (atoi(_Klock_speed)<5) || (atoi(_Klock_speed)>300)) {result=-1;} 	*/
@@ -440,8 +423,8 @@ printf(" (Id13:%s",_id13);
 printf(" Start Minute:%s",_start_minute);
 printf(" Lane:%s)\n\t",_lane);
 printf("Band:%s (%d Hz)\n\t",_band,freqs[band_as_int]);
-printf("Verbosity:%s\n\t",_verbosity);
-printf("Optional debug:%s\n\t",_Optional_Debug);*/
+printf("Verbosity:%s\n\t",_verbosity);*/
+printf("Optional debug:%s\n\t",_Optional_Debug);
 //printf("custom Pcb IO mappings:%s\n\t",_custom_PCB);
 //printf("Telemetry config:%s   (please set to '---' if unused)\n\t",_DEXT_config);
 //printf("Klock speed (temp) :%sMhz  \n",_Klock_speed);
@@ -491,7 +474,12 @@ void InitPicoPins(void)
 			gpio_put(GPS_ENABLE_PIN,1);
 			//this turn them BOTH off, must turn on later as needed
 	
-	
+		gpio_init(PICO_VSYS_PIN);  		//Prepare ADC 3 to read Vsys
+	gpio_set_dir(PICO_VSYS_PIN, GPIO_IN);
+	gpio_set_pulls(PICO_VSYS_PIN,0,0);
+    adc_init();
+    adc_set_temp_sensor_enabled(true); 	//Enable the onboard temperature sensor
+
 
 }
 
@@ -628,6 +616,9 @@ void datalog_loop()          //datalogging is very out of date
 	uint64_t t;
 	int elapsed_seconds;
 
+
+				gpio_put(LED_PIN, 1);
+				
 				printf("Enterring DATA LOG LOOP. waiting for sat lock or 65 sec max\n");
 				const float conversionFactor = 3.3f / (1 << 12);          //read temperature
 				adc_select_input(4);	
@@ -637,18 +628,20 @@ void datalog_loop()          //datalogging is very out of date
 				volts = 3*(float)adc_read() * conversionFactor;  
 
 				GPS_wait_start_time = get_absolute_time();
-	 
+			
+						printf("got to OFF");	gpio_put(LED_PIN, 0);
+
 				do
 					{
 						t = absolute_time_diff_us(GPS_wait_start_time, get_absolute_time());	
 										if (getchar_timeout_us(0)>0)   //looks for input on USB serial port only. Note: getchar_timeout_us(0) returns a -2 (as of sdk 2) if no keypress. But if you force it into a Char type, becomes something else
 										{
-											RfGen._pGPStime->user_setup_menu_active=1;	
+											
 											user_interface();   
 										}
 					} 
-				while (( t<450000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
-					//set to 450 seconds !!!!!
+				while (( t<3000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
+					//set to 3 seconds !!!!!
 				elapsed_seconds= t  / 1000000ULL;
 
 				if (RfGen._pGPStime->_time_data.sat_count>=4)
@@ -672,29 +665,79 @@ void datalog_loop()          //datalogging is very out of date
 				go_to_sleep();
 
 }
+///////////////////////////////////
+static void sleep_callback(void) {
+    printf("RTC woke us up\n");
+	uart_default_tx_wait_blocking();
+}
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void reboot_now()
 {
 printf("\n\nrebooting...");watchdog_enable(100, 1);for(;;)	{}
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Go to sleep until woken up by the RTC
+void sleep_goto_sleep_until_OLD_VERSION_pre_v2(datetime_t *t, rtc_callback_t callback) {
+    // We should have already called the sleep_run_from_dormant_source function
+    assert(dormant_source_valid(_dormant_source));
+
+    // Turn off all clocks when in sleep mode except for RTC
+    clocks_hw->sleep_en0 = CLOCKS_SLEEP_EN0_CLK_RTC_RTC_BITS;
+    clocks_hw->sleep_en1 = 0x0;
+
+    rtc_set_alarm(t, callback);
+
+    uint save = scb_hw->scr;
+    // Enable deep sleep at the proc
+    scb_hw->scr = save | M0PLUS_SCR_SLEEPDEEP_BITS;
+
+    // Go to sleep
+    __wfi();
+}
+/////////
 void go_to_sleep()
 {
-			/*
-			removing for now because 1) sleep doesnt work with new PLL setup and 2) updated pico-extras caused issues
+			
+/* This is the stuff that should have worked in v2 sdk, but dont	
+			struct timespec ts = { .tv_sec = 0, .tv_nsec = 0 };
+			aon_timer_start(&ts);
+			uart_default_tx_wait_blocking();
+			
+			        // Set the crystal oscillator as the dormant clock source, UART will be reconfigured from here
+        // This is only really necessary before sending the pico into dormancy but running from xosc while asleep saves power
+        sleep_run_from_xosc();
+			
+			struct timespec alarm_time;
+
+			aon_timer_get_time(&alarm_time);
+			alarm_time.tv_sec += 3;
+
+			///////sleep_run_from_rosc();
+			
+			//////sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
+			 uart_default_tx_wait_blocking();
+			sleep_goto_sleep_until(&alarm_time, &sleep_callback);	//blocks here during sleep perfiod
+			
+			watchdog_enable(100, 1);for(;;)	{}   //recovering from sleep is messy, so this makes it reboot to get a fresh start
+			*/
+		
+
+
+	
 			datetime_t t = {.year  = 2020,.month = 01,.day= 01, .dotw= 1,.hour=1,.min= 1,.sec = 00};			
 			rtc_init(); // Start the RTC
 			rtc_set_datetime(&t);
 			uart_default_tx_wait_blocking();
 			datetime_t alarm_time = t;
 
-			alarm_time.min += 20;	//sleep for 20 minutes.
-			//alarm_time.sec += 15;
+			//alarm_time.min += 20;	//sleep for 20 minutes.
+			alarm_time.sec += 3;
 
 			gpio_set_irq_enabled(GPS_PPS_PIN, GPIO_IRQ_EDGE_RISE, false); //this is needed to disable IRQ callback on PPS
-			pico_fractional_pll_deinit();  //this is (was?) needed, otherwise causes instant reboot
+			
 			sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
-			sleep_goto_sleep_until(&alarm_time, &sleep_callback);	//blocks here during sleep perfiod
+			sleep_goto_sleep_until_OLD_VERSION_pre_v2(&alarm_time, &sleep_callback);	//blocks here during sleep perfiod
 			{watchdog_enable(100, 1);for(;;)	{} }  //recovering from sleep is messy, so this makes it reboot to get a fresh start
-			*/
+		
+			
 }
