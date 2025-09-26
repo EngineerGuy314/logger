@@ -13,7 +13,7 @@
 // Serial data from GPS module wired to uart1, GPIO9. 
 
 		/* pin definitions  */
-#define GPS_ENABLE_PIN 11       /* 11 on JAWBBONE  GPS_ENABLE pin, inverse logic */  
+#define GPS_ENABLE_PIN 16      //16 on original pico-WSPRer PCBs /* 11 on JAWBBONE  GPS_ENABLE pin, inverse logic */  
 #define VFO_ENABLE_PIN 18       /* 18 on logger VFO synthesizer ENABLE pin, inverse logic */  
 #define ONEWIRE_bus_pin_pcb 27 
 

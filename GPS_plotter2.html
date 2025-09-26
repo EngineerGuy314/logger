@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>CSV Lat/Lon Plotter (Swapped)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body { margin:0; font-family:sans-serif; }
+    #controls { padding:10px; background:#f0f0f0; display:flex; flex-wrap:wrap; gap:12px; }
+    #map { height: 70vh; }
+    pre { background:#fff; padding:8px; border:1px solid #ccc; max-height:150px; overflow:auto; flex:1 1 400px; }
+    #firstPoint { padding:8px; border:1px solid #ccc; background:#fff; min-width:200px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input type="file" id="fileInput" accept=".csv,text/csv">
+    <button id="plotBtn">Plot CSV</button>
+    <div>Preview:</div>
+    <pre id="preview">No file loaded.</pre>
+    <div id="status">Status: N/A</div>
+    <div id="firstPoint">First point: N/A</div>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const previewEl = document.getElementById('preview');
+    const statusEl = document.getElementById('status');
+    const firstPointEl = document.getElementById('firstPoint');
+    const plotBtn = document.getElementById('plotBtn');
+
+    let parsedData = null;
+
+    // Show preview when file selected
+    fileInput.addEventListener('change', () => {
+      parsedData = null;
+      firstPointEl.textContent = "First point: N/A";
+      previewEl.textContent = "No file loaded.";
+      statusEl.textContent = "Status: N/A";
+
+      if (!fileInput.files.length) return;
+      const file = fileInput.files[0];
+
+      Papa.parse(file, {
+        skipEmptyLines: true,
+        complete: results => {
+          parsedData = results.data.filter(row => row.length >= 4); // only rows with at least 4 columns
+          if (parsedData.length === 0) {
+            previewEl.textContent = "File empty or not enough columns.";
+            return;
+          }
+          previewEl.textContent = parsedData.slice(0,10).map(r => r.join(" | ")).join("\n");
+          statusEl.textContent = `Loaded ${parsedData.length} rows.`;
+        },
+        error: err => {
+          previewEl.textContent = "Error reading file: " + err.message;
+        }
+      });
+    });
+
+    // Initialize map
+    const map = L.map('map').setView([20,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    let markers = L.layerGroup().addTo(map);
+
+    // Plot button
+    plotBtn.addEventListener('click', () => {
+      if (!parsedData || parsedData.length === 0) {
+        statusEl.textContent = "No CSV loaded or not enough columns.";
+        firstPointEl.textContent = "First point: N/A";
+        return;
+      }
+
+      markers.clearLayers();
+      let bounds = L.latLngBounds([]);
+      let good = 0, bad = 0;
+      let firstLat = null, firstLon = null;
+
+      parsedData.forEach((row,i) => {
+        // skip header if first row has text in new lat column
+        if (i===0 && isNaN(parseFloat(row[3]))) return;
+
+        // Swap: column 4 = latitude, column 2 = longitude
+        const lat = parseFloat(row[3]);
+        const lon = parseFloat(row[1]);
+
+        if (isFinite(lat) && isFinite(lon)) {
+          const marker = L.circleMarker([lat, lon], {radius:4}).addTo(markers);
+          marker.bindPopup(`Row ${i+1}<br>Lat: ${lat}<br>Lon: ${lon}`);
+          bounds.extend([lat, lon]);
+          good++;
+
+          if (firstLat === null) {
+            firstLat = lat;
+            firstLon = lon;
+          }
+        } else {
+          bad++;
+        }
+      });
+
+      if (good>0) {
+        map.fitBounds(bounds.pad(0.2));
+        statusEl.textContent = `Plotted ${good} points. Skipped ${bad}.`;
+        firstPointEl.textContent = `First point: Lat=${firstLat}, Lon=${firstLon}`;
+      } else {
+        statusEl.textContent = "No valid lat/lon found in columns 4 & 2.";
+        firstPointEl.textContent = "First point: N/A";
+      }
+    });
+  </script>
+</body>
+</html>
+

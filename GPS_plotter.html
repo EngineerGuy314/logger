@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>CSV Lat/Lon Plotter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body { margin:0; font-family:sans-serif; }
+    #controls { padding:10px; background:#f0f0f0; }
+    #map { height: 80vh; }
+    pre { background:#fff; padding:8px; border:1px solid #ccc; max-height:150px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input type="file" id="fileInput" accept=".csv,text/csv">
+    <button id="plotBtn">Plot CSV</button>
+    <div>Preview:</div>
+    <pre id="preview">No file loaded.</pre>
+    <div id="status"></div>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const previewEl = document.getElementById('preview');
+    const statusEl = document.getElementById('status');
+    const plotBtn = document.getElementById('plotBtn');
+
+    let parsedData = null;
+
+    // Show preview when file selected
+    fileInput.addEventListener('change', () => {
+      if (!fileInput.files.length) {
+        previewEl.textContent = "No file loaded.";
+        return;
+      }
+      const file = fileInput.files[0];
+      Papa.parse(file, {
+        skipEmptyLines: true,
+        complete: results => {
+          parsedData = results.data;
+          previewEl.textContent = parsedData.slice(0,10).map(r => r.join(" | ")).join("\n");
+          statusEl.textContent = `Loaded ${parsedData.length} rows.`;
+        }
+      });
+    });
+
+    // Initialize map
+    const map = L.map('map').setView([20,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    let markers = L.layerGroup().addTo(map);
+
+    // Plot button
+    plotBtn.addEventListener('click', () => {
+      if (!parsedData) {
+        statusEl.textContent = "No CSV loaded.";
+        return;
+      }
+      markers.clearLayers();
+      let bounds = L.latLngBounds([]);
+      let good = 0, bad = 0;
+      parsedData.forEach((row,i) => {
+        // skip header if looks like text
+        if (i===0 && isNaN(parseFloat(row[1]))) return;
+        let lat = parseFloat(row[1]);
+        let lon = parseFloat(row[3]);
+        if (isFinite(lat) && isFinite(lon)) {
+          const marker = L.circleMarker([lat, lon], {radius:4}).addTo(markers);
+          marker.bindPopup(`Row ${i+1}<br>Lat: ${lat}<br>Lon: ${lon}`);
+          bounds.extend([lat, lon]);
+          good++;
+        } else {
+          bad++;
+        }
+      });
+      if (good>0) {
+        map.fitBounds(bounds.pad(0.2));
+        statusEl.textContent = `Plotted ${good} points. Skipped ${bad}.`;
+      } else {
+        statusEl.textContent = "No valid lat/lon found in columns 2 & 4.";
+      }
+    });
+  </script>
+</body>
+</html>

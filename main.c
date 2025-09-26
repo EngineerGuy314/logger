@@ -65,10 +65,10 @@ int main()
 {
 	
 	StampPrintf("\n");DoLogPrint(); // needed asap to wake up the USB stdio port (because StampPrintf includes stdio_init_all();). why though?
-	for (int i=0;i < 20;i++) {printf("*");sleep_ms(100);}			
+	for (int i=0;i < 10;i++) {printf("*");sleep_ms(100);}			
  
 	gpio_init(LED_PIN);	gpio_set_dir(LED_PIN, GPIO_OUT); //initialize LED output
-	for (int i=0;i < 20;i++)     //do some blinky on startup, allows time for power supply to stabilize before GPS unit enabled
+	for (int i=0;i < 10;i++)     //do some blinky on startup, allows time for power supply to stabilize before GPS unit enabled
 		{gpio_put(LED_PIN, 1); sleep_ms(100);gpio_put(LED_PIN, 0);sleep_ms(100);}
 	read_NVRAM();				//reads values of _callsign,  _verbosity etc from NVRAM. MUST READ THESE *BEFORE* InitPicoPins
 	if (check_data_validity()==-1)  //if data was bad, breathe LED for 10 seconds and reboot. or if user presses a key enter setup
@@ -103,7 +103,7 @@ int main()
 //	pWB->_txSched.led_mode = 0;  //0 means no serial comms from  GPS (critical fault if it remains that way)
 
 	
-
+	gpio_put(GPS_ENABLE_PIN,0); //GPS on
 	RfGen._pGPStime = GPStimeInit(9600); 
 	RfGen._pGPStime->user_setup_menu_active=0;
 	RfGen._pGPStime->Optional_Debug=(uint8_t)atoi(_Optional_Debug);
@@ -118,7 +118,93 @@ int main()
 
 
 /*****************************************************************************************************************/
+/**
+ * @brief Initializes Pico pins
+ * 
+ */
+void InitPicoPins(void)
+{
+			gpio_init(GPS_ENABLE_PIN); gpio_set_dir(GPS_ENABLE_PIN, GPIO_OUT); //initialize GPS enable output (INVERSE LOGIC on custom PCB, so just initialize it, leave it at zero state)	
+			gpio_put(GPS_ENABLE_PIN,1);
+			//this turns it off, must turn on later as needed
+
+		gpio_init(PICO_VSYS_PIN);  		//Prepare ADC 3 to read Vsys
+	gpio_set_dir(PICO_VSYS_PIN, GPIO_IN);
+	gpio_set_pulls(PICO_VSYS_PIN,0,0);
+    adc_init();
+    adc_set_temp_sensor_enabled(true); 	//Enable the onboard temperature sensor
+
+
+}
+
 /*****************************************************************************************************************/
+//////////////////////////
+void datalog_loop()          
+{
+	char string_to_log[400];
+	absolute_time_t GPS_wait_start_time;
+	uint64_t t;
+	int elapsed_seconds;
+
+
+				//gpio_put(LED_PIN, 1);
+				
+				printf("Enterring DATA LOG LOOP. waiting for sat lock or xxxx sec max\n");
+				const float conversionFactor = 3.3f / (1 << 12);          //read temperature
+				adc_select_input(4);	
+				float adc = (float)adc_read() * conversionFactor;
+				float tempf =32+(( 27.0f - (adc - 0.706f) / 0.001721f)*(9.0f/5.0f));						
+				adc_select_input(3);  //if setup correctly, ADC3 reads Vsys   // read voltage
+				volts = 3*(float)adc_read() * conversionFactor;  
+
+				GPS_wait_start_time = get_absolute_time();
+			
+
+
+				do
+					{
+						t = absolute_time_diff_us(GPS_wait_start_time, get_absolute_time());	
+										if (getchar_timeout_us(0)>0)   //looks for input on USB serial port only. Note: getchar_timeout_us(0) returns a -2 (as of sdk 2) if no keypress. But if you force it into a Char type, becomes something else
+										{
+											
+											user_interface();   
+										}
+					} 
+				while (( t<200*1000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
+					//set to 200 seconds !!!!!
+				elapsed_seconds= t  / 1000000ULL;
+
+				if (RfGen._pGPStime->_time_data.sat_count>=4)
+				{
+				/*int initial_sat_count=RfGen._pGPStime->_time_data.sat_count;
+				sleep_ms(5000); //even though sat count seen, wait a bit longer
+				int sat_count_5secs=RfGen._pGPStime->_time_data.sat_count;
+				sleep_ms(5000); //even though sat count seen, wait a bit longer*/
+				
+				
+				
+				//sprintf(string_to_log,"lat,%f,lon,%f,alt,%.0f,init sat,%d,satCnt5sec,%d,satCnt10sec,%d,time:,%s,temp:,%.1f,batV,%.2f,sec2aqu,%d\n",RfGen._pGPStime->_time_data._i64_lon_100k/10000000.0,RfGen._pGPStime->_time_data._i64_lat_100k/10000000.0,RfGen._pGPStime->_altitude,initial_sat_count,sat_count_5secs,RfGen._pGPStime->_time_data.sat_count,RfGen._pGPStime->_time_data._full_time_string,tempf,volts,elapsed_seconds);
+				sprintf(string_to_log,"lat,%f,lon,%f,alt,%.0f,sat cnt,%d,time:,%s,temp:,%.1f,batV,%.2f,sec2aqu,%d\n",RfGen._pGPStime->_time_data._i64_lon_100k/10000000.0,RfGen._pGPStime->_time_data._i64_lat_100k/10000000.0,RfGen._pGPStime->_altitude,RfGen._pGPStime->_time_data.sat_count,RfGen._pGPStime->_time_data._full_time_string,tempf,volts,elapsed_seconds);
+				write_to_next_avail_flash(string_to_log);
+				printf("GPS data has been logged.\n");
+				}
+					else
+				{
+				//sprintf(string_to_log,"no reading, time might be:,%s,temp:,%f,bat voltage:,%f\n",RfGen._pGPStime->_time_data._full_time_string,tempf,volts);
+				//if  timeout write zero for lat lon but does all other stuff as is
+				sprintf(string_to_log,"lat,%f,lon,%f,alt,%.0f,sat cnt,%d,time:,%s,temp:,%.1f,batV,%.2f,sec2aqu,%d\n",0,0,RfGen._pGPStime->_altitude,RfGen._pGPStime->_time_data.sat_count,RfGen._pGPStime->_time_data._full_time_string,tempf,volts,elapsed_seconds);
+				write_to_next_avail_flash(string_to_log);
+				printf("NO GPS seen :-(\n");
+				}
+
+				printf("About to sleep!\n");
+				gpio_set_dir(GPS_ENABLE_PIN, GPIO_IN);  //let the mosfet drive float
+
+				go_to_sleep();
+
+}
+
+
 /*****************************************************************************************************************/
 /*****************************************************************************************************************/
 
@@ -411,7 +497,7 @@ void show_values(void) /* shows current VALUES  AND list of Valid Commands */
 check_data_validity_and_set_defaults(); //added may 2025, will this cause problems? with fresh out of box pico?
 
 int band_as_int=_band[0]-'A';       
-printf(CLEAR_SCREEN);
+//printf(CLEAR_SCREEN);
 printf("logger  by KC3LBR,  version: %s %s\n\n",__DATE__ ,__TIME__);
 printf(UNDERLINE_ON);printf(BRIGHT);
 printf("\n\nCurrent values:\n");printf(UNDERLINE_OFF);printf(NORMAL);
@@ -424,23 +510,25 @@ printf(" Start Minute:%s",_start_minute);
 printf(" Lane:%s)\n\t",_lane);
 printf("Band:%s (%d Hz)\n\t",_band,freqs[band_as_int]);
 printf("Verbosity:%s\n\t",_verbosity);*/
-printf("Optional debug:%s\n\t",_Optional_Debug);
+printf("\tOptional debug:%s\n\t",_Optional_Debug);
 //printf("custom Pcb IO mappings:%s\n\t",_custom_PCB);
 //printf("Telemetry config:%s   (please set to '---' if unused)\n\t",_DEXT_config);
 //printf("Klock speed (temp) :%sMhz  \n",_Klock_speed);
-printf("Datalog mode:%s\n\t",_Datalog_mode);
-/*printf("Battery (low power) mode:%s\n\t",_battery_mode);
-printf("secret band Hopping mode:%s\n\n",_band_hop);
+printf("Datalog mode:%s\n\n",_Datalog_mode);
+//printf("Battery (low power) mode:%s\n\t",_battery_mode);
+//printf("secret band Hopping mode:%s\n\n",_band_hop);
 
 							printf(UNDERLINE_ON);printf(BRIGHT);
 printf("VALID commands: ");printf(UNDERLINE_OFF);printf(NORMAL);
 
+
 printf("\n\n\tX: eXit configuraiton and reboot\n\t");
+
 //printf("S: change Suffix ( for WSPR3/Zachtek) use '-' to disable WSPR3\n\t");
 //printf("U: change U4b channel # (0-599)\n\t");
 //printf("B: change Band (F-M) default 20M is H\n\t");
-/*printf("I: change Id13 (two alpha numeric chars, ie Q8) use '--' to disable U4B\n\t");
-printf("M: change starting Minute (0,2,4,6,8)\n\tL: Lane (1,2,3,4) corresponding to 4 frequencies in 20M band\n\t");*/ //it is still possible to directly change these, but its not shown
+//printf("I: change Id13 (two alpha numeric chars, ie Q8) use '--' to disable U4B\n\t");
+//printf("M: change starting Minute (0,2,4,6,8)\n\tL: Lane (1,2,3,4) corresponding to 4 frequencies in 20M band\n\t"); //it is still possible to directly change these, but its not shown
 printf("V: Verbosity level (0 for no messages, 9 for too many) \n\t");
 printf("O: Optional debug functions (bitmapped 0 - 255) \n\t");
 //printf("P: custom Pcb mode IO mappings (0,1)\n\t");
@@ -448,7 +536,7 @@ printf("O: Optional debug functions (bitmapped 0 - 255) \n\t");
 //printf("K: Klock speed  \n\t");
 printf("D: Datalog mode (0,1,(W)ipe memory, (D)ump memory) see wiki\n\t");
 //printf("B: Battery (low power) mode \n\t");
-printf("F: Frequency output (antenna tuning mode)\n\t");
+//printf("F: Frequency output (antenna tuning mode)\n\t");
 //printf("H: secret band Hopping mode \n\n");
 
 }
@@ -463,24 +551,6 @@ void convertToUpperCase(char *str) {
         *str = toupper((unsigned char)*str);
         str++;
     }
-}
-/**
- * @brief Initializes Pico pins
- * 
- */
-void InitPicoPins(void)
-{
-			gpio_init(GPS_ENABLE_PIN); gpio_set_dir(GPS_ENABLE_PIN, GPIO_OUT); //initialize GPS enable output (INVERSE LOGIC on custom PCB, so just initialize it, leave it at zero state)	
-			gpio_put(GPS_ENABLE_PIN,1);
-			//this turn them BOTH off, must turn on later as needed
-	
-		gpio_init(PICO_VSYS_PIN);  		//Prepare ADC 3 to read Vsys
-	gpio_set_dir(PICO_VSYS_PIN, GPIO_IN);
-	gpio_set_pulls(PICO_VSYS_PIN,0,0);
-    adc_init();
-    adc_set_temp_sensor_enabled(true); 	//Enable the onboard temperature sensor
-
-
 }
 
 
@@ -608,63 +678,6 @@ if ( (length_of_input + found_byte_location)>FLASH_SECTOR_SIZE)  //then need to 
 	printf("size of input string %s is: %d wrote it to byte %d in sector %d\n",text,length_of_input,found_byte_location,found_sector);
 
 }
-//////////////////////////
-void datalog_loop()          //datalogging is very out of date
-{
-	char string_to_log[400];
-	absolute_time_t GPS_wait_start_time;
-	uint64_t t;
-	int elapsed_seconds;
-
-
-				gpio_put(LED_PIN, 1);
-				
-				printf("Enterring DATA LOG LOOP. waiting for sat lock or 65 sec max\n");
-				const float conversionFactor = 3.3f / (1 << 12);          //read temperature
-				adc_select_input(4);	
-				float adc = (float)adc_read() * conversionFactor;
-				float tempf =32+(( 27.0f - (adc - 0.706f) / 0.001721f)*(9.0f/5.0f));						
-				adc_select_input(3);  //if setup correctly, ADC3 reads Vsys   // read voltage
-				volts = 3*(float)adc_read() * conversionFactor;  
-
-				GPS_wait_start_time = get_absolute_time();
-			
-						printf("got to OFF");	gpio_put(LED_PIN, 0);
-
-				do
-					{
-						t = absolute_time_diff_us(GPS_wait_start_time, get_absolute_time());	
-										if (getchar_timeout_us(0)>0)   //looks for input on USB serial port only. Note: getchar_timeout_us(0) returns a -2 (as of sdk 2) if no keypress. But if you force it into a Char type, becomes something else
-										{
-											
-											user_interface();   
-										}
-					} 
-				while (( t<3000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
-					//set to 3 seconds !!!!!
-				elapsed_seconds= t  / 1000000ULL;
-
-				if (RfGen._pGPStime->_time_data.sat_count>=4)
-				{
-				sleep_ms(3000); //even though sat count seen, wait a bit longer
-				sprintf(string_to_log,"latitutde:,%lli,longitude:,%lli,altitude:,%f,sat count:,%d,time:,%s,temp:,%f,bat voltage:,%f,seconds to aquisition:,%d\n",RfGen._pGPStime->_time_data._i64_lon_100k,RfGen._pGPStime->_time_data._i64_lat_100k,RfGen._pGPStime->_altitude,RfGen._pGPStime->_time_data.sat_count,RfGen._pGPStime->_time_data._full_time_string,tempf,volts,elapsed_seconds);
-				write_to_next_avail_flash(string_to_log);
-				printf("GPS data has been logged.\n");
-				}
-					else
-				{
-				sprintf(string_to_log,"no reading, time might be:,%s,temp:,%f,bat voltage:,%f\n",RfGen._pGPStime->_time_data._full_time_string,tempf,volts);
-				write_to_next_avail_flash(string_to_log);
-				printf("NO GPS seen :-(\n");
-				}
-
-				printf("About to sleep!\n");
-				gpio_set_dir(GPS_ENABLE_PIN, GPIO_IN);  //let the mosfet drive float
-
-				go_to_sleep();
-
-}
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void reboot_now()
 {
@@ -678,8 +691,8 @@ void go_to_sleep()
 			rtc_init(); // Start the RTC
 			rtc_set_datetime(&t);
 
-			//t.min += 20;	//sleep for 20 minutes.   BE CRAEFUL, dont exceed 59!?
-			t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
+			t.min += 30;	//sleep for 20 minutes.   BE CRAEFUL, dont exceed 59!?
+			//t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
 
 			sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
 			// Turn off all clocks when in sleep mode except for RTC
