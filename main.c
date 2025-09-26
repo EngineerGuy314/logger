@@ -170,6 +170,8 @@ void datalog_loop()
 											user_interface();   
 										}
 					} 
+
+//sets max time to wait for GPS before giving up
 				while (( t<200*1000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
 					//set to 200 seconds !!!!!
 				elapsed_seconds= t  / 1000000ULL;
@@ -691,7 +693,8 @@ void go_to_sleep()
 			rtc_init(); // Start the RTC
 			rtc_set_datetime(&t);
 
-			t.min += 30;	//sleep for 20 minutes.   BE CRAEFUL, dont exceed 59!?
+			//time to sleep before next reading:
+			t.min += 30;	//sleep for 30 minutes.   BE CRAEFUL, dont exceed 59!?
 			//t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
 
 			sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)

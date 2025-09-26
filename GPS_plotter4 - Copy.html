@@ -10,7 +10,7 @@
     #controls { padding:10px; background:#f0f0f0; display:flex; flex-wrap:wrap; gap:12px; }
     #map { height: 70vh; }
     pre { background:#fff; padding:8px; border:1px solid #ccc; max-height:150px; overflow:auto; flex:1 1 400px; }
-    
+    #firstPoint { padding:8px; border:1px solid #ccc; background:#fff; min-width:200px; }
   </style>
 </head>
 <body>
@@ -20,7 +20,7 @@
     <div>Preview:</div>
     <pre id="preview">No file loaded.</pre>
     <div id="status">Status: N/A</div>
-   
+    <div id="firstPoint">First point: N/A</div>
   </div>
   <div id="map"></div>
 
@@ -30,7 +30,7 @@
     const fileInput = document.getElementById('fileInput');
     const previewEl = document.getElementById('preview');
     const statusEl = document.getElementById('status');
-    
+    const firstPointEl = document.getElementById('firstPoint');
     const plotBtn = document.getElementById('plotBtn');
 
     let parsedData = null;
@@ -38,7 +38,7 @@
     // Show preview when file selected
     fileInput.addEventListener('change', () => {
       parsedData = null;
-      
+      firstPointEl.textContent = "First point: N/A";
       previewEl.textContent = "No file loaded.";
       statusEl.textContent = "Status: N/A";
 
@@ -73,7 +73,7 @@
     plotBtn.addEventListener('click', () => {
       if (!parsedData || parsedData.length === 0) {
         statusEl.textContent = "No CSV loaded or not enough columns.";
-        
+        firstPointEl.textContent = "First point: N/A";
         return;
       }
 
@@ -94,7 +94,7 @@
           const marker = L.circleMarker([lat, lon], {radius:4}).addTo(markers);
 
           // Show the full row in popup
-          marker.bindPopup(`<strong>Row ${i+1}</strong><br>${row.map((v,j)=>`${v}`).join('<br>')}`);
+          marker.bindPopup(`<strong>Row ${i+1}</strong><br>${row.map((v,j)=>`Col${j+1}: ${v}`).join('<br>')}`);
 
           bounds.extend([lat, lon]);
           good++;
@@ -111,10 +111,10 @@
       if (good>0) {
         map.fitBounds(bounds.pad(0.2));
         statusEl.textContent = `Plotted ${good} points. Skipped ${bad}.`;
-        
+        firstPointEl.textContent = `First point: Lat=${firstLat}, Lon=${firstLon}`;
       } else {
         statusEl.textContent = "No valid lat/lon found in columns 4 & 2.";
-        
+        firstPointEl.textContent = "First point: N/A";
       }
     });
   </script>
