@@ -694,8 +694,19 @@ void go_to_sleep()
 			rtc_set_datetime(&t);
 
 			//time to sleep before next reading:
-			t.min += 30;	//sleep for 30 minutes.   BE CRAEFUL, dont exceed 59!?
-			//t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
+			//t.min += 30;	//sleep for 30 minutes.   BE CRAEFUL, dont exceed 59!?
+			t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
+
+
+
+    uart_tx_wait_blocking(uart1);
+
+    // Optionally disable UART interrupts
+    irq_set_enabled(UART1_IRQ, false);
+
+    // Or even disable the UART entirely
+    uart_deinit(uart1);
+
 
 			sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);  //this reduces sleep draw to 2mA! (without this will still sleep, but only at 8mA)
 			// Turn off all clocks when in sleep mode except for RTC
