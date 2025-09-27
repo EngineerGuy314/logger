@@ -169,6 +169,7 @@ void datalog_loop()
 											
 											user_interface();   
 										}
+										
 					} 
 
 //sets max time to wait for GPS before giving up
@@ -176,6 +177,7 @@ void datalog_loop()
 					//set to 200 seconds !!!!!
 				elapsed_seconds= t  / 1000000ULL;
 
+				printf("<DONE! Gonna write to nvram>"); sleep_ms(20);
 				if (RfGen._pGPStime->_time_data.sat_count>=4)
 				{
 				/*int initial_sat_count=RfGen._pGPStime->_time_data.sat_count;
@@ -194,14 +196,18 @@ void datalog_loop()
 				{
 				//sprintf(string_to_log,"no reading, time might be:,%s,temp:,%f,bat voltage:,%f\n",RfGen._pGPStime->_time_data._full_time_string,tempf,volts);
 				//if  timeout write zero for lat lon but does all other stuff as is
-				sprintf(string_to_log,"lat,%f,lon,%f,alt,%.0f,sat cnt,%d,time:,%s,temp:,%.1f,batV,%.2f,sec2aqu,%d\n",0,0,RfGen._pGPStime->_altitude,RfGen._pGPStime->_time_data.sat_count,RfGen._pGPStime->_time_data._full_time_string,tempf,volts,elapsed_seconds);
+				float zero=0;
+				sprintf(string_to_log,"lat,%f,lon,%f,alt,%.0f,sat cnt,%d,time:,%s,temp:,%.1f,batV,%.2f,sec2aqu,%d\n",zero,zero,RfGen._pGPStime->_altitude,RfGen._pGPStime->_time_data.sat_count,RfGen._pGPStime->_time_data._full_time_string,tempf,volts,elapsed_seconds);
 				write_to_next_avail_flash(string_to_log);
 				printf("NO GPS seen :-(\n");
 				}
 
 				printf("About to sleep!\n");
+				sleep_ms(10);
 				gpio_set_dir(GPS_ENABLE_PIN, GPIO_IN);  //let the mosfet drive float
-
+				printf("after a sec disabled GPS now waiting another sec..\n");
+				sleep_ms(10);
+			printf("About to sleep FOR REAL NOW\n");
 				go_to_sleep();
 
 }

@@ -52,6 +52,7 @@ void GPStimeDestroy(GPStimeContext **pp)
 ///  UART FIFO ISR. Processes another N chars received from GPS receiver
 void RAM (GPStimeUartRxIsr)()
 {
+	gpio_put(LED_PIN, 1);
     if((spGPStimeContext))
     {
 		uart_inst_t *puart_id = uart1;
@@ -79,6 +80,7 @@ void RAM (GPStimeUartRxIsr)()
 			spGPStimeContext->_i32_error_count -= parse_GPS_data(spGPStimeContext);
         }
     }
+		gpio_put(LED_PIN, 0);
 }
 
 /// @brief Processes a NMEA sentence GxRMC.
