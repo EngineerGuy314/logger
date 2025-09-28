@@ -173,8 +173,8 @@ void datalog_loop()
 					} 
 
 //sets max time to wait for GPS before giving up
-				while (( t<200*1000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
-					//set to 200 seconds !!!!!
+				while (( t<250*1000000ULL )&&(RfGen._pGPStime->_time_data.sat_count<4));               //wait for RfGen._pGPStime->_time_data.sat_coun>4 with 65 second maximum time
+					//set to 250 seconds !!!!!
 				elapsed_seconds= t  / 1000000ULL;
 
 				printf("<DONE! Gonna write to nvram>"); sleep_ms(20);
@@ -700,7 +700,7 @@ void go_to_sleep()
 			rtc_set_datetime(&t);
 
 			//time to sleep before next reading:
-			t.min += 30;	//sleep for 30 minutes.   BE CRAEFUL, dont exceed 59!?
+			t.min += 20;	//sleep for 20 minutes.   BE CRAEFUL, dont exceed 59!?
 			//t.sec += 12;								//BE CRAEFUL, dont exceed 59!?
 
 
